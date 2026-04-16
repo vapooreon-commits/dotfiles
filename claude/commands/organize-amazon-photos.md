@@ -141,10 +141,10 @@ source_dirs = sorted([
 
 source_files = []
 for sdir in source_dirs:
-    for fname in sorted(os.listdir(sdir)):
-        fpath = os.path.join(sdir, fname)
-        if os.path.isfile(fpath) and not fname.startswith("."):
-            source_files.append(fpath)
+    for root, dirs, files in os.walk(sdir):
+        for fname in sorted(files):
+            if not fname.startswith("."):
+                source_files.append(os.path.join(root, fname))
 
 log(f"  ソースフォルダ数: {len(source_dirs)}件")
 log(f"  ソースファイル数: {len(source_files)}件")
