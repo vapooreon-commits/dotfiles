@@ -90,9 +90,28 @@ def set_timestamp(fpath, date_part, time_part):
             check=True, capture_output=True
         )
 
+def get_exif_date(fpath):
+    """exiftoolでDateTimeOriginal → CreateDate → MetadataDate の順に取得（秒なし形式にも対応）"""
+    for tag in ["-DateTimeOriginal", "-CreateDate", "-MetadataDate"]:
+        result = subprocess.run(
+            ["exiftool", tag, "-s3", fpath],
+            capture_output=True, text=True
+        )
+        val = result.stdout.strip()
+        if val:
+            m = re.match(r"(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):?(\d{2})?", val)
+            if m:
+                Y, Mo, D, H, Mi, S = m.groups()
+                return Y, Mo, D, H, Mi, S or "00"
+    return None
+
 # ファイル名パターン（通常形式・編集済み形式の両方）
 PATTERN = re.compile(
     r"^(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})_(\d+)( \([^)]+\))?\.(\w+)$"
+)
+# (1)サフィックス付きパターン
+PATTERN_DUP = re.compile(
+    r"^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})_\d+\(\d+\)\.\w+$"
 )
 
 # ── Step A: 既存ハッシュDB構築 ──────────────────────────────
@@ -143,8 +162,55 @@ for fpath in source_files:
 
     m = PATTERN.match(fname)
     if not m:
-        log(f"  [SKIP] ファイル名形式不一致: {fname}")
-        stats["errors"] += 1
+        # (1)サフィックス付きファイル名から日付抽出
+        md = PATTERN_DUP.match(fname)
+        if md:
+            Y, Mo, D, H, Mi, S = md.groups()
+        else:
+            # EXIFフォールバック（MOAxxx.jpg / IMG_xxxx.JPG など）
+            exif = get_exif_date(fpath)
+            if exif:
+                Y, Mo, D, H, Mi, S = exif
+            else:
+                log(f"  [SKIP] 日付取得不可: {fname}")
+                stats["errors"] += 1
+                continue
+        year, month = Y, Mo
+        # タイムスタンプ設定・重複チェック・移動（以下共通処理へ）
+        try:
+            h = md5_file(fpath)
+        except Exception as e:
+            log(f"  [ERROR] ハッシュエラー: {fname}: {e}")
+            stats["errors"] += 1
+            continue
+        if h in existing_hashes or h in batch_hashes:
+            log(f"  [DUP] {fname} → 重複削除")
+            stats["duplicates"] += 1
+            os.remove(fpath)
+            continue
+        batch_hashes[h] = fpath
+        try:
+            subprocess.run(["touch", "-t", f"{Y}{Mo}{D}{H}{Mi}.{S}", fpath], check=True, capture_output=True)
+        except Exception:
+            pass
+        dest_dir  = os.path.join(DEST_BASE, year, f"{year}-{month}")
+        os.makedirs(dest_dir, exist_ok=True)
+        dest_path = os.path.join(dest_dir, fname)
+        if os.path.exists(dest_path) and md5_file(dest_path) == h:
+            log(f"  [DUP] {fname} → 移動先と同一")
+            stats["duplicates"] += 1
+            os.remove(fpath)
+            existing_hashes.add(h)
+            continue
+        try:
+            shutil.copy2(fpath, dest_path)
+            os.remove(fpath)
+            stats["moved"] += 1
+            existing_hashes.add(h)
+            log(f"  [EXIF] {fname} → {year}/{year}-{month}/")
+        except Exception as e:
+            log(f"  [ERROR] {fname}: {e}")
+            stats["errors"] += 1
         continue
 
     date_part, time_part, _, suffix, ext = m.groups()
