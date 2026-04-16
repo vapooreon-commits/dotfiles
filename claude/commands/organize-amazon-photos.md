@@ -20,11 +20,24 @@ LOG_FILE       : /Volumes/Seagate Hub/amazon_pipeline_log.txt
 
 実行前に以下を確認し、ユーザーに報告する。
 
-1. `~/Downloads/` 内の `AmazonPhotos*` フォルダ数・ファイル数
+1. `~/Downloads/` 内の `AmazonPhotos*.zip` の数と `AmazonPhotos*` フォルダの数・ファイル数
 2. Seagate がマウントされているか（`/Volumes/Seagate Hub` が存在するか）
 3. `整理済み_Amazon` の既存ファイル数
 
 問題があれば作業を中断してユーザーに伝える。
+
+### Step 1.5 — zip 自動解凍
+
+`~/Downloads/` に `AmazonPhotos*.zip` が存在する場合、以下を実行する。
+
+```bash
+cd ~/Downloads
+for f in AmazonPhotos*.zip; do
+    unzip -q "$f" -d "${f%.zip}"
+done
+```
+
+解凍完了後、zipファイルのリストを記録しておく（Step 4 で削除するため）。
 
 ### Step 2 — Python スクリプト生成・実行
 
@@ -211,10 +224,19 @@ log(
 log(f"整理済み_Amazon 累計: {total}件")
 ```
 
-### Step 3 — 結果報告
+### Step 3 — zip ファイル削除
+
+Step 1.5 で解凍した zip ファイルを削除する。
+
+```bash
+cd ~/Downloads && rm AmazonPhotos*.zip
+```
+
+### Step 4 — 結果報告
 
 処理完了後、以下をユーザーに報告する。
 
+- 解凍した zip ファイル数（あった場合）
 - 移動件数・重複削除件数・エラー件数
 - 整理済み_Amazon の累計ファイル数
 - エラーや残存ファイルがある場合はその詳細
