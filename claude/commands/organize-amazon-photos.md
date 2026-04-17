@@ -33,7 +33,8 @@ if not os.path.isdir(SEAGATE_BASE):
     print("ERROR: Seagate がマウントされていません。/Volumes/Seagate Hub が見つかりません。")
     exit(1)
 
-stats = {"processed": 0, "moved": 0, "duplicates": 0, "errors": 0, "zips": 0}
+stats = {"processed": 0, "moved": 0, "duplicates": 0, "errors": 0, "zips": 0, "unknown_date": 0}
+UNKNOWN_DIR = os.path.join(DEST_BASE, "日付不明")
 
 def log(msg):
     ts   = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
@@ -139,8 +140,36 @@ for fpath in source_files:
             if exif:
                 Y, Mo, D, H, Mi, S = exif
             else:
-                log(f"  [SKIP] 日付取得不可: {fname}")
-                stats["errors"] += 1
+                try:
+                    h = md5_file(fpath)
+                except Exception as e:
+                    log(f"  [ERROR] ハッシュエラー: {fname}: {e}")
+                    stats["errors"] += 1
+                    continue
+                if h in existing_hashes or h in batch_hashes:
+                    stats["duplicates"] += 1
+                    os.remove(fpath)
+                    continue
+                batch_hashes[h] = fpath
+                os.makedirs(UNKNOWN_DIR, exist_ok=True)
+                dest_path = os.path.join(UNKNOWN_DIR, fname)
+                if os.path.exists(dest_path):
+                    if md5_file(dest_path) == h:
+                        stats["duplicates"] += 1
+                        os.remove(fpath)
+                        existing_hashes.add(h)
+                        continue
+                    base, ex = os.path.splitext(fname)
+                    dest_path = os.path.join(UNKNOWN_DIR, f"{base}_alt{ex}")
+                try:
+                    shutil.copy2(fpath, dest_path)
+                    os.remove(fpath)
+                    stats["unknown_date"] += 1
+                    existing_hashes.add(h)
+                    log(f"  [日付不明] {fname}")
+                except Exception as e:
+                    log(f"  [ERROR] {fname}: {e}")
+                    stats["errors"] += 1
                 continue
         year, month = Y, Mo
         try:
@@ -247,6 +276,7 @@ log(
     f"zip解凍: {stats['zips']}件 / "
     f"処理済み: {stats['processed']}件 / "
     f"移動: {stats['moved']}件 / "
+    f"日付不明: {stats['unknown_date']}件 / "
     f"重複削除: {stats['duplicates']}件 / "
     f"エラー: {stats['errors']}件"
 )
@@ -257,8 +287,9 @@ log(f"整理済み_Amazon 累計: {total}件")
 
 スクリプト完了後、以下をユーザーに報告する。
 
-- zip解凍数・移動件数・重複削除件数・エラー件数
+- zip解凍数・移動件数・日付不明件数・重複削除件数・エラー件数
 - 整理済み_Amazon の累計ファイル数
+- 日付不明ファイルがある場合はファイル名一覧を報告
 - エラーや残存ファイルがある場合はその詳細
 
 ---
