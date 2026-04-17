@@ -241,7 +241,7 @@ for zf in zip_files:
         pass
 
 # ── 完了サマリー ────────────────────────────────────────
-total = sum(len(files) for _, _, files in os.walk(DEST_BASE))
+total = sum(1 for _, _, files in os.walk(DEST_BASE) for f in files if not f.startswith("."))
 log("===== 処理完了 =====")
 log(
     f"zip解凍: {stats['zips']}件 / "
